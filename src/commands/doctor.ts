@@ -87,6 +87,61 @@ export async function doctorCommand(options: Options): Promise<void> {
     }
   }
 
+  // 3b. Settings drift (.claude/settings.json missing keys the lockfile says were merged)
+  const settingsJsonPath = join(ROOT, '.claude', 'settings.json');
+  let settings: {
+    env?: Record<string, string>;
+    permissions?: { allow?: string[] };
+    extraKnownMarketplaces?: Record<string, unknown>;
+    enabledPlugins?: Record<string, boolean>;
+    hooks?: Record<string, Array<{ hooks: Array<{ command?: string }> }>>;
+  } = {};
+  if (await exists(settingsJsonPath)) {
+    try {
+      settings = JSON.parse(await readFile(settingsJsonPath, 'utf-8'));
+    } catch (err) {
+      findings.push({
+        severity: 'error',
+        message: `.claude/settings.json is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+        fixable: false,
+      });
+    }
+  }
+  for (const [name, entry] of Object.entries(lock.packs)) {
+    const o = entry.settingsKeys;
+    if (!o) continue;
+    for (const k of o.envKeys ?? []) {
+      if (!settings.env || !(k in settings.env)) {
+        findings.push({
+          severity: 'warn',
+          message: `${name}: env '${k}' missing from .claude/settings.json (manually removed?).`,
+          fixable: false,
+        });
+      }
+    }
+    for (const rule of o.permissionsAllow ?? []) {
+      if (!settings.permissions?.allow?.includes(rule)) {
+        findings.push({
+          severity: 'warn',
+          message: `${name}: permissions.allow '${rule}' missing from .claude/settings.json.`,
+          fixable: false,
+        });
+      }
+    }
+    for (const cmd of o.hookCommands ?? []) {
+      const found = Object.values(settings.hooks ?? {}).some(arr =>
+        arr.some(g => g.hooks.some(h => h.command === cmd)),
+      );
+      if (!found) {
+        findings.push({
+          severity: 'warn',
+          message: `${name}: hook command '${cmd}' missing from .claude/settings.json.`,
+          fixable: false,
+        });
+      }
+    }
+  }
+
   // 4. CLAUDE.md block out of sync with lockfile rule files
   const claudeMdPath = join(ROOT, 'CLAUDE.md');
   if (await exists(claudeMdPath)) {
