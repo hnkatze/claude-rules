@@ -21,7 +21,7 @@ npx @hnkatze/claude-rules list
 npx @hnkatze/claude-rules remove angular-stack
 ```
 
-## Commands (MVP)
+## Commands
 
 | Command | Alias | Description |
 | ------- | ----- | ----------- |
@@ -29,12 +29,16 @@ npx @hnkatze/claude-rules remove angular-stack
 | `available` | — | List packs available in the registry |
 | `add <packs...>` | — | Install one or more packs (resolves deps + offers MCP installation) |
 | `list` | `ls` | Show installed packs and versions |
-| `remove <pack>` | `rm` | Uninstall a pack (removes its files and MCPs) |
+| `remove <pack>` | `rm` | Uninstall a pack — auto-detects orphan deps and offers to clean them |
+| `update [pack]` | — | Refresh installed packs to latest registry version (all or specific) |
+| `sync` | — | Install + update + repair to match `claude-rules.json` (CI/teammate flow) |
+| `doctor` | — | Diagnose drift: missing files, broken `CLAUDE.md` block, outdated packs |
 
 ### Flags
 
-- `--no-mcps` (on `add`): skip the MCP install prompt
-- `-y, --yes`: skip confirmation prompts (non-interactive)
+- `--no-mcps` (on `add`/`update`/`sync`): skip the MCP install prompt
+- `-y, --yes`: skip confirmation prompts (non-interactive — answers Yes to everything)
+- `--fix` (on `doctor`): auto-repair fixable findings (regenerate `CLAUDE.md` block)
 
 ## How it works
 
@@ -67,13 +71,12 @@ npx @hnkatze/claude-rules remove angular-stack
 
 - `CLAUDE_RULES_REGISTRY` — override the default registry. Format: `<owner>/<repo>[#<branch>]` (e.g. `hnkatze/claude-rules-content#dev`)
 
-## Roadmap (post-MVP)
+## Roadmap
 
-- `update [pack]` — pull latest versions
-- `sync` — install exactly what `claude-rules.json` declares (CI/teammate flow)
-- `doctor` — diagnose drift between `.claude/`, lockfile, and registry
-- Custom registries (multiple sources)
-- Bundles/presets command flags
+- Custom registries (multiple sources beyond `claude-rules-content`)
+- Bundles/presets via flags (e.g. `add --preset minimal`)
+- Pack search/filter in `available`
+- Auth support for private registries
 
 ## License
 
