@@ -1,6 +1,6 @@
 {
   "name": "@hnkatze/claude-rules",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "CLI to install rules, skills, and MCPs into Claude Code projects from the @hnkatze/claude-rules-content registry",
   "type": "module",
   "bin": {

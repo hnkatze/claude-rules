@@ -51,10 +51,35 @@ npx @hnkatze/claude-rules remove angular-stack
    - Mirrors the pack structure into `.claude/`:
      - `packs/<name>/rules/*` → `.claude/rules/`
      - `packs/<name>/skills/<skill>/*` → `.claude/skills/<skill>/`
-     - `packs/<name>/agents/*` → `.claude/agents/` (future)
+     - `packs/<name>/agents/*` → `.claude/agents/` (schema v2)
+     - `packs/<name>/hooks/*.sh` → `.claude/hooks/` (schema v2, `chmod +x` on Unix)
    - Asks (interactive multiselect) which MCPs from the pack to merge into `.mcp.json`
+   - Merges the pack's `settings` block + hook settings entries into `.claude/settings.json` (schema v2, additive only — see [docs/schema-v2.md](#schema-v2))
    - Updates `claude-rules.json`, `claude-rules.lock.json`, and the `CLAUDE.md` block
 3. The `CLAUDE.md` block uses `@.claude/rules/<file>` references so Claude Code auto-loads them.
+
+## Schema v2
+
+The CLI supports manifest **schema v2** (additive, fully backwards compatible with v1). A v2 manifest may declare:
+
+- `schemaVersion: 2`
+- `agents: ["agents/<name>.md", ...]` — mirrored to `.claude/agents/`
+- `hooks: { scripts: [...], settings: [...] }` — scripts mirrored to `.claude/hooks/`, settings merged into `.claude/settings.json`
+- `settings: { env?, permissions?: { allow? }, extraKnownMarketplaces?, enabledPlugins? }` — additive only; **prohibited fields**: `language`, `outputStyle`, `voice`, `voiceEnabled`, `statusLine`, `skipDangerousModePermissionPrompt`, `permissions.deny`, `permissions.defaultMode`
+
+### Settings merge semantics
+
+- `env.<KEY>` — last-write-wins (warns on collision)
+- `permissions.allow[]` — set union
+- `extraKnownMarketplaces.<KEY>` — shallow merge (warns on collision)
+- `enabledPlugins.<plugin>` — last-write-wins
+- `hooks.settings[]` — appended to `.claude/settings.json` → `hooks.<event>[]`, deduped by command
+
+### Ownership tracking
+
+Each pack's settings additions are recorded in `claude-rules.lock.json` under `settingsKeys` (env keys, allow rules, plugin names, marketplace keys, hook commands). On uninstall, the CLI removes exactly those entries — your hand-edited settings are left intact.
+
+v1 packs continue to install with v1 behavior (rules + skills + mcps). v2 packs installed via an older CLI degrade gracefully — `agents`, `hooks`, and `settings` are silently skipped.
 
 ## Files written to your project
 
@@ -64,6 +89,9 @@ npx @hnkatze/claude-rules remove angular-stack
 | `claude-rules.lock.json` | Pinned versions + installed file paths (commit it) |
 | `.claude/rules/*.md` | Rule files (commit or ignore — your call) |
 | `.claude/skills/*/` | Skill folders (commit or ignore) |
+| `.claude/agents/*.md` | Agent definitions (schema v2) |
+| `.claude/hooks/*.sh` | Hook scripts (schema v2) |
+| `.claude/settings.json` | Project settings merged from packs (schema v2, additive only) |
 | `.mcp.json` | MCP configs merged from packs (commit it for team) |
 | `CLAUDE.md` | Managed block with `@.claude/rules/*.md` refs |
 
