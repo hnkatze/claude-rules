@@ -18,13 +18,14 @@ interface CollectedMcp {
   mcp: McpEntry;
 }
 
-export async function addCommand(packs: string[], options: Options): Promise<void> {
-  if (packs.length === 0) {
+export async function addCommand(packs: string[] | string, options: Options): Promise<void> {
+  const packList = Array.isArray(packs) ? packs : [packs];
+  if (packList.length === 0) {
     console.error(pc.red('Error:'), 'specify at least one pack to install.');
     process.exit(1);
   }
 
-  p.intro(pc.cyan('@hnkatze/claude-rules ') + pc.dim('add ' + packs.join(' ')));
+  p.intro(pc.cyan('@hnkatze/claude-rules ') + pc.dim('add ' + packList.join(' ')));
 
   const installMcpsAllowed = options.mcps !== false;
 
@@ -32,7 +33,7 @@ export async function addCommand(packs: string[], options: Options): Promise<voi
   resolveSpinner.start('Resolving dependencies');
   let order: Manifest[];
   try {
-    order = await resolveInstallOrder(packs);
+    order = await resolveInstallOrder(packList);
   } catch (err) {
     resolveSpinner.stop(pc.red('Failed to resolve dependencies'));
     p.log.error(err instanceof Error ? err.message : String(err));

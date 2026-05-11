@@ -17,7 +17,7 @@ cli
   .action(availableCommand);
 
 cli
-  .command('add <packs...>', 'Install one or more packs (resolves deps and offers MCP installation)')
+  .command('add <...packs>', 'Install one or more packs (resolves deps and offers MCP installation)')
   .option('--no-mcps', 'Skip the MCP installation prompt')
   .option('-y, --yes', 'Skip all confirmation prompts (non-interactive)')
   .action(addCommand);
