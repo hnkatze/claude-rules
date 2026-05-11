@@ -1,7 +1,13 @@
-import type { InstallResult, Manifest } from '../types.js';
+import type {
+  InstallResult,
+  Lockfile,
+  Manifest,
+  ProjectConfig,
+} from '../types.js';
 import {
   installFile,
   mergeMcps,
+  pruneEmptyClaudeDirs,
   readLockfile,
   readProjectConfig,
   removeInstalledFiles,
@@ -49,19 +55,36 @@ export async function installPackFiles(manifest: Manifest): Promise<string[]> {
   return installed;
 }
 
-/** Persists installed packs to project config + lockfile + CLAUDE.md block. */
-export async function recordInstalls(results: InstallResult[]): Promise<void> {
+/**
+ * Persists install state.
+ *
+ * - `results`: newly installed packs (this run). Written to the lockfile.
+ * - `requestedPackNames`: packs the user explicitly asked for. Added/updated in `claude-rules.json`.
+ *   Transitive deps are NOT added to config — they live only in the lockfile, so removing the
+ *   top-level pack lets us detect them as orphans later.
+ */
+export async function recordInstalls(
+  results: InstallResult[],
+  requestedPackNames: string[],
+): Promise<void> {
   const config = await readProjectConfig();
   const lock = await readLockfile();
 
   for (const { manifest, files, mcps } of results) {
-    config.packs[manifest.name] = `^${manifest.version}`;
     lock.packs[manifest.name] = {
       version: manifest.version,
       files,
       mcps,
       dependencies: manifest.dependencies,
     };
+  }
+
+  for (const name of requestedPackNames) {
+    const fromResult = results.find(r => r.manifest.name === name);
+    const version = fromResult?.manifest.version ?? lock.packs[name]?.version;
+    if (version) {
+      config.packs[name] = `^${version}`;
+    }
   }
 
   await writeProjectConfig(config);
@@ -71,21 +94,75 @@ export async function recordInstalls(results: InstallResult[]): Promise<void> {
   await updateClaudeMdBlock(allRuleFiles);
 }
 
-export async function uninstallPack(packName: string): Promise<void> {
+/**
+ * Returns the names of packs that are in the lockfile but no longer reachable
+ * from any top-level (config-listed) pack. These are leftovers from removing
+ * a meta/parent pack.
+ */
+export function findOrphans(config: ProjectConfig, lock: Lockfile): string[] {
+  const topLevel = Object.keys(config.packs);
+  const reachable = new Set<string>();
+
+  function walk(name: string): void {
+    if (reachable.has(name)) return;
+    if (!lock.packs[name]) return;
+    reachable.add(name);
+    for (const dep of lock.packs[name].dependencies) {
+      walk(dep);
+    }
+  }
+
+  for (const name of topLevel) walk(name);
+
+  return Object.keys(lock.packs)
+    .filter(name => !reachable.has(name))
+    .sort();
+}
+
+/**
+ * Removes one or more packs in a single batch: deletes files, strips MCPs,
+ * updates config + lockfile, then rebuilds the CLAUDE.md block once.
+ */
+export async function uninstallPacks(
+  packNames: string[],
+): Promise<{ removed: string[]; missing: string[] }> {
+  if (packNames.length === 0) return { removed: [], missing: [] };
+
   const config = await readProjectConfig();
   const lock = await readLockfile();
-  const entry = lock.packs[packName];
-  if (!entry) throw new Error(`Pack '${packName}' is not installed`);
+  const removed: string[] = [];
+  const missing: string[] = [];
 
-  await removeInstalledFiles(entry.files);
-  await removeMcps(entry.mcps);
-
-  delete config.packs[packName];
-  delete lock.packs[packName];
+  for (const name of packNames) {
+    const entry = lock.packs[name];
+    if (!entry) {
+      missing.push(name);
+      continue;
+    }
+    await removeInstalledFiles(entry.files);
+    await removeMcps(entry.mcps);
+    delete config.packs[name];
+    delete lock.packs[name];
+    removed.push(name);
+  }
 
   await writeProjectConfig(config);
   await writeLockfile(lock);
 
   const allRuleFiles = Object.values(lock.packs).flatMap(p => p.files);
   await updateClaudeMdBlock(allRuleFiles);
+  await pruneEmptyClaudeDirs();
+
+  return { removed, missing };
+}
+
+/** Convenience wrapper for single-pack removal. */
+export async function uninstallPack(packName: string): Promise<void> {
+  const { removed, missing } = await uninstallPacks([packName]);
+  if (missing.length > 0) {
+    throw new Error(`Pack '${packName}' is not installed`);
+  }
+  if (removed.length === 0) {
+    throw new Error(`Failed to remove '${packName}'`);
+  }
 }

@@ -1,4 +1,12 @@
-import { access, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  access,
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  rmdir,
+  writeFile,
+} from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import type { Lockfile, McpEntry, ProjectConfig } from '../types.js';
 
@@ -66,6 +74,31 @@ export async function removeInstalledFiles(files: string[]): Promise<void> {
     const path = join(ROOT, file);
     if (await exists(path)) await rm(path, { force: true });
   }
+}
+
+/** Recursively removes empty directories under .claude/. Bottom-up walk. */
+async function rmEmptyRecursive(dir: string): Promise<boolean> {
+  if (!(await exists(dir))) return true;
+  const entries = await readdir(dir, { withFileTypes: true });
+  let allEmpty = true;
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      const childRemoved = await rmEmptyRecursive(join(dir, entry.name));
+      if (!childRemoved) allEmpty = false;
+    } else {
+      allEmpty = false;
+    }
+  }
+  if (allEmpty) {
+    await rmdir(dir);
+    return true;
+  }
+  return false;
+}
+
+/** Cleans up .claude/rules/, .claude/skills/, .claude/agents/, and .claude/ if empty. */
+export async function pruneEmptyClaudeDirs(): Promise<void> {
+  await rmEmptyRecursive(join(ROOT, '.claude'));
 }
 
 interface McpJson {

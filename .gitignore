@@ -5,3 +5,9 @@ dist/
 .env
 .env.local
 .npmrc
+
+# Dogfooding artifacts (CLI used inside its own repo for testing)
+.claude/
+claude-rules.json
+claude-rules.lock.json
+.mcp.json

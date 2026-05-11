@@ -5,7 +5,7 @@ import {
   recordInstalls,
   resolveInstallOrder,
 } from '../lib/install.js';
-import { mergeMcps, readLockfile } from '../lib/local.js';
+import { mergeMcps, readLockfile, readProjectConfig } from '../lib/local.js';
 import type { InstallResult, Manifest, McpEntry } from '../types.js';
 
 interface Options {
@@ -42,12 +42,23 @@ export async function addCommand(packs: string[] | string, options: Options): Pr
   resolveSpinner.stop(`Resolved ${pc.bold(String(order.length))} pack(s)`);
 
   const lock = await readLockfile();
+  const config = await readProjectConfig();
   const toInstall = order.filter(m => !lock.packs[m.name]);
   const skipped = order.filter(m => lock.packs[m.name]);
+  const requestedMissingFromConfig = packList.filter(name => !config.packs[name]);
 
-  if (toInstall.length === 0) {
-    p.log.warn('All requested packs (and their deps) are already installed.');
+  if (toInstall.length === 0 && requestedMissingFromConfig.length === 0) {
+    p.log.warn('All requested packs are already installed and tracked.');
     p.outro(pc.dim('Nothing to do.'));
+    return;
+  }
+
+  if (toInstall.length === 0 && requestedMissingFromConfig.length > 0) {
+    p.log.info(
+      `Already installed — marking as top-level: ${pc.bold(requestedMissingFromConfig.join(', '))}`,
+    );
+    await recordInstalls([], packList);
+    p.outro(pc.green('claude-rules.json updated.'));
     return;
   }
 
@@ -122,14 +133,14 @@ export async function addCommand(packs: string[] | string, options: Options): Pr
       sp.stop(pc.red(`✗ ${manifest.name}@${manifest.version}`));
       p.log.error(err instanceof Error ? err.message : String(err));
       if (results.length > 0) {
-        await recordInstalls(results);
+        await recordInstalls(results, packList);
         p.log.warn(`Recorded ${results.length} successful pack(s) before failure.`);
       }
       process.exit(1);
     }
   }
 
-  await recordInstalls(results);
+  await recordInstalls(results, packList);
 
   p.outro(
     pc.green(`Installed ${results.length} pack(s). `) +

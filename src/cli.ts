@@ -6,6 +6,10 @@ import { initCommand } from './commands/init.js';
 import { listCommand } from './commands/list.js';
 import { removeCommand } from './commands/remove.js';
 
+// @clack/prompts adds temporary unhandledRejection listeners per spinner; with
+// 9+ spinners in a row we hit Node's default 10-listener warning. Bump it.
+process.setMaxListeners(30);
+
 const cli = cac('claude-rules');
 
 cli
