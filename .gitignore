@@ -11,3 +11,4 @@ dist/
 claude-rules.json
 claude-rules.lock.json
 .mcp.json
+CLAUDE.md
