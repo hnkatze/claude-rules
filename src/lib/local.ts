@@ -307,17 +307,23 @@ export async function removeSettings(ownership: SettingsOwnership | undefined): 
   }
 
   if (ownership.hookCommands && data.hooks) {
-    for (const event of Object.keys(data.hooks)) {
-      const groups = data.hooks[event];
+    const hooksRoot = data.hooks;
+    for (const event of Object.keys(hooksRoot)) {
+      const groups = hooksRoot[event];
+      if (!groups) continue;
       for (const group of groups) {
         group.hooks = group.hooks.filter(
           h => !ownership.hookCommands!.includes(h.command as string),
         );
       }
-      data.hooks[event] = groups.filter(g => g.hooks.length > 0);
-      if (data.hooks[event].length === 0) delete data.hooks[event];
+      const remaining = groups.filter(g => g.hooks.length > 0);
+      if (remaining.length === 0) {
+        delete hooksRoot[event];
+      } else {
+        hooksRoot[event] = remaining;
+      }
     }
-    if (Object.keys(data.hooks).length === 0) delete data.hooks;
+    if (Object.keys(hooksRoot).length === 0) delete data.hooks;
   }
 
   await writeSettingsJson(data);
