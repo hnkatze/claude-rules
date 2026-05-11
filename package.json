@@ -1,0 +1,51 @@
+{
+  "name": "@hnkatze/claude-rules",
+  "version": "0.1.0",
+  "description": "CLI to install rules, skills, and MCPs into Claude Code projects from the @hnkatze/claude-rules-content registry",
+  "type": "module",
+  "bin": {
+    "claude-rules": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.7.0",
+    "cac": "^6.7.14",
+    "picocolors": "^1.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "tsup": "^8.0.2",
+    "typescript": "^5.4.5"
+  },
+  "keywords": [
+    "claude-code",
+    "claude",
+    "rules",
+    "skills",
+    "mcp",
+    "cli"
+  ],
+  "author": "@hnkatze",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hnkatze/claude-rules.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hnkatze/claude-rules/issues"
+  },
+  "homepage": "https://github.com/hnkatze/claude-rules#readme"
+}

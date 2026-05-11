@@ -1,0 +1,80 @@
+# @hnkatze/claude-rules
+
+CLI to install rules, skills, and MCPs into Claude Code projects from the [@hnkatze/claude-rules-content](https://github.com/hnkatze/claude-rules-content) registry.
+
+## Quick start
+
+```bash
+# Initialize the project (creates claude-rules.json + managed block in CLAUDE.md)
+npx @hnkatze/claude-rules init
+
+# See what's available
+npx @hnkatze/claude-rules available
+
+# Install a stack bundle (rules + skills + MCPs)
+npx @hnkatze/claude-rules add angular-stack
+
+# List installed
+npx @hnkatze/claude-rules list
+
+# Remove
+npx @hnkatze/claude-rules remove angular-stack
+```
+
+## Commands (MVP)
+
+| Command | Alias | Description |
+| ------- | ----- | ----------- |
+| `init` | — | Initialize project: scaffold `claude-rules.json` + managed block in `CLAUDE.md` |
+| `available` | — | List packs available in the registry |
+| `add <packs...>` | — | Install one or more packs (resolves deps + offers MCP installation) |
+| `list` | `ls` | Show installed packs and versions |
+| `remove <pack>` | `rm` | Uninstall a pack (removes its files and MCPs) |
+
+### Flags
+
+- `--no-mcps` (on `add`): skip the MCP install prompt
+- `-y, --yes`: skip confirmation prompts (non-interactive)
+
+## How it works
+
+1. `init` writes `claude-rules.json` (declarative manifest of installed packs) and a managed block in `CLAUDE.md`.
+2. `add <pack>` does, in order:
+   - Fetches the manifest from the content registry on GitHub
+   - Resolves `dependencies` recursively
+   - Shows a plan of what will be installed
+   - Downloads the pack files via GitHub raw URLs
+   - Mirrors the pack structure into `.claude/`:
+     - `packs/<name>/rules/*` → `.claude/rules/`
+     - `packs/<name>/skills/<skill>/*` → `.claude/skills/<skill>/`
+     - `packs/<name>/agents/*` → `.claude/agents/` (future)
+   - Asks (interactive multiselect) which MCPs from the pack to merge into `.mcp.json`
+   - Updates `claude-rules.json`, `claude-rules.lock.json`, and the `CLAUDE.md` block
+3. The `CLAUDE.md` block uses `@.claude/rules/<file>` references so Claude Code auto-loads them.
+
+## Files written to your project
+
+| File | Purpose |
+| ---- | ------- |
+| `claude-rules.json` | Declarative list of installed packs (commit it) |
+| `claude-rules.lock.json` | Pinned versions + installed file paths (commit it) |
+| `.claude/rules/*.md` | Rule files (commit or ignore — your call) |
+| `.claude/skills/*/` | Skill folders (commit or ignore) |
+| `.mcp.json` | MCP configs merged from packs (commit it for team) |
+| `CLAUDE.md` | Managed block with `@.claude/rules/*.md` refs |
+
+## Environment
+
+- `CLAUDE_RULES_REGISTRY` — override the default registry. Format: `<owner>/<repo>[#<branch>]` (e.g. `hnkatze/claude-rules-content#dev`)
+
+## Roadmap (post-MVP)
+
+- `update [pack]` — pull latest versions
+- `sync` — install exactly what `claude-rules.json` declares (CI/teammate flow)
+- `doctor` — diagnose drift between `.claude/`, lockfile, and registry
+- Custom registries (multiple sources)
+- Bundles/presets command flags
+
+## License
+
+MIT

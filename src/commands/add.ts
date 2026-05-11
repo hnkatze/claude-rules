@@ -1,0 +1,137 @@
+import * as p from '@clack/prompts';
+import pc from 'picocolors';
+import {
+  installPackFiles,
+  recordInstalls,
+  resolveInstallOrder,
+} from '../lib/install.js';
+import { mergeMcps, readLockfile } from '../lib/local.js';
+import type { InstallResult, Manifest, McpEntry } from '../types.js';
+
+interface Options {
+  mcps?: boolean;
+  yes?: boolean;
+}
+
+interface CollectedMcp {
+  packName: string;
+  mcp: McpEntry;
+}
+
+export async function addCommand(packs: string[], options: Options): Promise<void> {
+  if (packs.length === 0) {
+    console.error(pc.red('Error:'), 'specify at least one pack to install.');
+    process.exit(1);
+  }
+
+  p.intro(pc.cyan('@hnkatze/claude-rules ') + pc.dim('add ' + packs.join(' ')));
+
+  const installMcpsAllowed = options.mcps !== false;
+
+  const resolveSpinner = p.spinner();
+  resolveSpinner.start('Resolving dependencies');
+  let order: Manifest[];
+  try {
+    order = await resolveInstallOrder(packs);
+  } catch (err) {
+    resolveSpinner.stop(pc.red('Failed to resolve dependencies'));
+    p.log.error(err instanceof Error ? err.message : String(err));
+    process.exit(1);
+  }
+  resolveSpinner.stop(`Resolved ${pc.bold(String(order.length))} pack(s)`);
+
+  const lock = await readLockfile();
+  const toInstall = order.filter(m => !lock.packs[m.name]);
+  const skipped = order.filter(m => lock.packs[m.name]);
+
+  if (toInstall.length === 0) {
+    p.log.warn('All requested packs (and their deps) are already installed.');
+    p.outro(pc.dim('Nothing to do.'));
+    return;
+  }
+
+  console.log();
+  console.log(pc.bold('Plan:'));
+  for (const m of toInstall) {
+    const tag = m.meta ? pc.magenta(' [meta]') : '';
+    const desc = m.description.length > 60 ? m.description.slice(0, 57) + '...' : m.description;
+    console.log(`  ${pc.green('+')} ${pc.bold(m.name)}@${m.version}${tag}  ${pc.dim(desc)}`);
+  }
+  for (const m of skipped) {
+    console.log(`  ${pc.dim('= ' + m.name + '@' + m.version + '  (already installed)')}`);
+  }
+  console.log();
+
+  if (!options.yes) {
+    const confirm = await p.confirm({ message: 'Proceed with installation?' });
+    if (p.isCancel(confirm) || !confirm) {
+      p.outro(pc.yellow('Cancelled.'));
+      return;
+    }
+  }
+
+  const allMcps: CollectedMcp[] = toInstall.flatMap(m =>
+    m.mcps.map(mcp => ({ packName: m.name, mcp })),
+  );
+
+  let chosenMcps: CollectedMcp[] = [];
+  if (installMcpsAllowed && allMcps.length > 0) {
+    if (options.yes) {
+      chosenMcps = allMcps;
+    } else {
+      const result = await p.multiselect({
+        message: 'Which MCPs do you want to install in .mcp.json? (all preselected — uncheck to skip)',
+        options: allMcps.map(({ packName, mcp }) => ({
+          label: `${pc.bold(mcp.name)} ${pc.dim('(from ' + packName + ')')}`,
+          value: `${packName}::${mcp.name}`,
+        })),
+        initialValues: allMcps.map(({ packName, mcp }) => `${packName}::${mcp.name}`),
+        required: false,
+      });
+      if (p.isCancel(result)) {
+        p.outro(pc.yellow('Cancelled.'));
+        return;
+      }
+      const chosen = new Set(result);
+      chosenMcps = allMcps.filter(({ packName, mcp }) => chosen.has(`${packName}::${mcp.name}`));
+    }
+  }
+
+  const mcpsByPack = new Map<string, McpEntry[]>();
+  for (const { packName, mcp } of chosenMcps) {
+    const list = mcpsByPack.get(packName) ?? [];
+    list.push(mcp);
+    mcpsByPack.set(packName, list);
+  }
+
+  const results: InstallResult[] = [];
+  for (const manifest of toInstall) {
+    const sp = p.spinner();
+    sp.start(`Installing ${manifest.name}@${manifest.version}`);
+    try {
+      const files = await installPackFiles(manifest);
+      const mcps = await mergeMcps(mcpsByPack.get(manifest.name) ?? []);
+      sp.stop(
+        pc.green('✓ ') +
+          pc.bold(`${manifest.name}@${manifest.version}`) +
+          pc.dim(`  ${files.length} files, ${mcps.length} mcps`),
+      );
+      results.push({ manifest, files, mcps });
+    } catch (err) {
+      sp.stop(pc.red(`✗ ${manifest.name}@${manifest.version}`));
+      p.log.error(err instanceof Error ? err.message : String(err));
+      if (results.length > 0) {
+        await recordInstalls(results);
+        p.log.warn(`Recorded ${results.length} successful pack(s) before failure.`);
+      }
+      process.exit(1);
+    }
+  }
+
+  await recordInstalls(results);
+
+  p.outro(
+    pc.green(`Installed ${results.length} pack(s). `) +
+      pc.dim('CLAUDE.md updated, lockfile written.'),
+  );
+}
