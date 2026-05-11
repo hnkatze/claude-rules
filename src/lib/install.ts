@@ -3,15 +3,17 @@ import type {
   Lockfile,
   Manifest,
   ProjectConfig,
+  SettingsOwnership,
 } from '../types.js';
 import {
   installFile,
-  mergeMcps,
+  mergeSettings,
   pruneEmptyClaudeDirs,
   readLockfile,
   readProjectConfig,
   removeInstalledFiles,
   removeMcps,
+  removeSettings,
   updateClaudeMdBlock,
   writeLockfile,
   writeProjectConfig,
@@ -42,17 +44,40 @@ export async function resolveInstallOrder(packNames: string[]): Promise<Manifest
   return order;
 }
 
-/** Downloads and writes a pack's files. Returns installed paths (relative to project root). */
-export async function installPackFiles(manifest: Manifest): Promise<string[]> {
-  if (manifest.meta) return [];
+interface CategorizedFiles {
+  all: string[];
+  agents: string[];
+  hookScripts: string[];
+}
+
+/** Downloads and writes a pack's files. Returns installed paths categorized by destination. */
+export async function installPackFiles(manifest: Manifest): Promise<CategorizedFiles> {
+  if (manifest.meta) return { all: [], agents: [], hookScripts: [] };
   const relPaths = await listPackFiles(manifest.name);
-  const installed: string[] = [];
+  const all: string[] = [];
+  const agents: string[] = [];
+  const hookScripts: string[] = [];
   for (const relPath of relPaths) {
     const content = await fetchPackFile(manifest.name, relPath);
     const dest = await installFile(relPath, content);
-    if (dest !== null) installed.push(dest);
+    if (dest === null) continue;
+    all.push(dest);
+    if (relPath.startsWith('agents/')) agents.push(dest);
+    else if (relPath.startsWith('hooks/')) hookScripts.push(dest);
   }
-  return installed;
+  return { all, agents, hookScripts };
+}
+
+/**
+ * Installs a pack's settings (env, permissions, plugins, marketplaces) and hook settings entries
+ * into `.claude/settings.json`. Returns the ownership record to be stored in the lockfile.
+ */
+export async function installPackSettings(
+  manifest: Manifest,
+  warn: (msg: string) => void = () => {},
+): Promise<SettingsOwnership> {
+  if (manifest.meta) return {};
+  return mergeSettings(manifest.name, manifest.settings, manifest.hooks?.settings, warn);
 }
 
 /**
@@ -70,12 +95,15 @@ export async function recordInstalls(
   const config = await readProjectConfig();
   const lock = await readLockfile();
 
-  for (const { manifest, files, mcps } of results) {
+  for (const { manifest, files, mcps, agents, hookScripts, settingsKeys } of results) {
     lock.packs[manifest.name] = {
       version: manifest.version,
       files,
       mcps,
       dependencies: manifest.dependencies,
+      ...(agents.length > 0 ? { agents } : {}),
+      ...(hookScripts.length > 0 ? { hookScripts } : {}),
+      ...(hasOwnership(settingsKeys) ? { settingsKeys } : {}),
     };
   }
 
@@ -92,6 +120,16 @@ export async function recordInstalls(
 
   const allRuleFiles = Object.values(lock.packs).flatMap(p => p.files);
   await updateClaudeMdBlock(allRuleFiles);
+}
+
+function hasOwnership(o: SettingsOwnership): boolean {
+  return (
+    (o.envKeys?.length ?? 0) > 0 ||
+    (o.permissionsAllow?.length ?? 0) > 0 ||
+    (o.marketplaceKeys?.length ?? 0) > 0 ||
+    (o.pluginKeys?.length ?? 0) > 0 ||
+    (o.hookCommands?.length ?? 0) > 0
+  );
 }
 
 /**
@@ -121,7 +159,7 @@ export function findOrphans(config: ProjectConfig, lock: Lockfile): string[] {
 
 /**
  * Removes one or more packs in a single batch: deletes files, strips MCPs,
- * updates config + lockfile, then rebuilds the CLAUDE.md block once.
+ * reverses settings merge, updates config + lockfile, then rebuilds the CLAUDE.md block once.
  */
 export async function uninstallPacks(
   packNames: string[],
@@ -141,6 +179,7 @@ export async function uninstallPacks(
     }
     await removeInstalledFiles(entry.files);
     await removeMcps(entry.mcps);
+    await removeSettings(entry.settingsKeys);
     delete config.packs[name];
     delete lock.packs[name];
     removed.push(name);
