@@ -2,6 +2,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import {
   installPackFiles,
+  installPackSettings,
   recordInstalls,
   resolveInstallOrder,
 } from '../lib/install.js';
@@ -121,14 +122,20 @@ export async function addCommand(packs: string[] | string, options: Options): Pr
     const sp = p.spinner();
     sp.start(`Installing ${manifest.name}@${manifest.version}`);
     try {
-      const files = await installPackFiles(manifest);
+      const { all, agents, hookScripts } = await installPackFiles(manifest);
       const mcps = await mergeMcps(mcpsByPack.get(manifest.name) ?? []);
+      const settingsKeys = await installPackSettings(manifest, msg => p.log.warn(msg));
+      const extras: string[] = [];
+      if (agents.length > 0) extras.push(`${agents.length} agents`);
+      if (hookScripts.length > 0) extras.push(`${hookScripts.length} hooks`);
       sp.stop(
         pc.green('✓ ') +
           pc.bold(`${manifest.name}@${manifest.version}`) +
-          pc.dim(`  ${files.length} files, ${mcps.length} mcps`),
+          pc.dim(
+            `  ${all.length} files, ${mcps.length} mcps${extras.length > 0 ? ', ' + extras.join(', ') : ''}`,
+          ),
       );
-      results.push({ manifest, files, mcps });
+      results.push({ manifest, files: all, mcps, agents, hookScripts, settingsKeys });
     } catch (err) {
       sp.stop(pc.red(`✗ ${manifest.name}@${manifest.version}`));
       p.log.error(err instanceof Error ? err.message : String(err));

@@ -4,6 +4,7 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import {
   installPackFiles,
+  installPackSettings,
   recordInstalls,
   resolveInstallOrder,
 } from '../lib/install.js';
@@ -12,6 +13,7 @@ import {
   readLockfile,
   readProjectConfig,
   removeInstalledFiles,
+  removeSettings,
   ROOT,
 } from '../lib/local.js';
 import type { InstallResult, McpEntry } from '../types.js';
@@ -155,16 +157,23 @@ export async function syncCommand(options: Options): Promise<void> {
       const existing = lock.packs[manifest.name];
       if (existing) {
         await removeInstalledFiles(existing.files);
+        await removeSettings(existing.settingsKeys);
       }
-      const files = await installPackFiles(manifest);
+      const { all, agents, hookScripts } = await installPackFiles(manifest);
       const newlyMerged = await mergeMcps(mcpsByPack.get(manifest.name) ?? []);
       const existingMcps = existing?.mcps ?? [];
       const allMcps = Array.from(new Set([...existingMcps, ...newlyMerged]));
-      results.push({ manifest, files, mcps: allMcps });
+      const settingsKeys = await installPackSettings(manifest, msg => p.log.warn(msg));
+      const extras: string[] = [];
+      if (agents.length > 0) extras.push(`${agents.length} agents`);
+      if (hookScripts.length > 0) extras.push(`${hookScripts.length} hooks`);
+      results.push({ manifest, files: all, mcps: allMcps, agents, hookScripts, settingsKeys });
       ssp.stop(
         pc.green('✓ ') +
           pc.bold(`${manifest.name}@${manifest.version}`) +
-          pc.dim(`  ${files.length} files, ${allMcps.length} mcps`),
+          pc.dim(
+            `  ${all.length} files, ${allMcps.length} mcps${extras.length > 0 ? ', ' + extras.join(', ') : ''}`,
+          ),
       );
     } catch (err) {
       ssp.stop(pc.red(`✗ ${manifest.name}`));

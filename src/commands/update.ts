@@ -2,12 +2,14 @@ import * as p from '@clack/prompts';
 import pc from 'picocolors';
 import {
   installPackFiles,
+  installPackSettings,
   recordInstalls,
 } from '../lib/install.js';
 import {
   mergeMcps,
   readLockfile,
   removeInstalledFiles,
+  removeSettings,
 } from '../lib/local.js';
 import { fetchManifest } from '../lib/registry.js';
 import type { InstallResult, Manifest, McpEntry } from '../types.js';
@@ -100,10 +102,11 @@ export async function updateCommand(
     const ssp = p.spinner();
     ssp.start(`Updating ${u.name} → ${u.manifest.version}`);
     try {
-      const oldFiles = lock.packs[u.name]?.files ?? [];
-      await removeInstalledFiles(oldFiles);
+      const oldEntry = lock.packs[u.name];
+      await removeInstalledFiles(oldEntry?.files ?? []);
+      await removeSettings(oldEntry?.settingsKeys);
 
-      const files = await installPackFiles(u.manifest);
+      const { all, agents, hookScripts } = await installPackFiles(u.manifest);
 
       let mcpsToMerge: McpEntry[] = [];
       if (newMcpAllowed && u.newMcps.length > 0) {
@@ -130,17 +133,26 @@ export async function updateCommand(
       const newlyMerged = await mergeMcps(mcpsToMerge);
       const existing = lock.packs[u.name]?.mcps ?? [];
       const allMcps = Array.from(new Set([...existing, ...newlyMerged]));
+      const settingsKeys = await installPackSettings(u.manifest, msg => p.log.warn(msg));
 
       const manifestForResult: Manifest = u.manifest;
+      const extras: string[] = [];
+      if (agents.length > 0) extras.push(`${agents.length} agents`);
+      if (hookScripts.length > 0) extras.push(`${hookScripts.length} hooks`);
       results.push({
         manifest: manifestForResult,
-        files,
+        files: all,
         mcps: allMcps,
+        agents,
+        hookScripts,
+        settingsKeys,
       });
       ssp.stop(
         pc.green('✓ ') +
           pc.bold(`${u.name}@${u.manifest.version}`) +
-          pc.dim(`  ${files.length} files, ${allMcps.length} mcps`),
+          pc.dim(
+            `  ${all.length} files, ${allMcps.length} mcps${extras.length > 0 ? ', ' + extras.join(', ') : ''}`,
+          ),
       );
     } catch (err) {
       ssp.stop(pc.red(`✗ ${u.name}`));
